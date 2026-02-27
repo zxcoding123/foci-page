@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { motion, Reorder } from "framer-motion"
 import { Slider } from "@/components/ui/slider"
-import { FaTree, FaWater, FaFire, FaMoon, FaPlay, FaWind, FaBook, FaStop, FaTimes, FaCheck, FaTrash, FaPause, FaRedo, FaMagic, FaChartBar, FaTag, FaBullseye, FaGripVertical, FaPlus, FaMinus, FaFlag, FaList, FaThLarge } from "react-icons/fa"
+import { FaTree, FaWater, FaFire, FaMoon, FaPlay, FaWind, FaBook, FaStop, FaTimes, FaCheck, FaTrash, FaPause, FaRedo, FaMagic, FaChartBar, FaTag, FaBullseye, FaGripVertical, FaPlus, FaMinus, FaFlag, FaList, FaThLarge, FaSeedling, FaBolt, FaBrain } from "react-icons/fa"
 import Navbar from "@/components/sections/header"
 import Footer from "@/components/sections/footer"
 import CustomCursor from "@/components/ui/customCursor";
@@ -96,12 +96,16 @@ export default function MixPage() {
   const [customMinutes, setCustomMinutes] = useState("")
   const [customBreakMinutes, setCustomBreakMinutes] = useState("")
   const [isCustomTimerOpen, setIsCustomTimerOpen] = useState(false)
-  const [todos, setTodos] = useState<{ id: string; text: string; completed: boolean; pomoSessions: number; completedPomos: number; tags: string[]; priority: "low" | "medium" | "high" }[]>([])
+  const [todos, setTodos] = useState<{ id: string; text: string; completed: boolean; pomoSessions: number; completedPomos: number; tags: string[]; priority: "low" | "medium" | "high"; deadline?: string }[]>([])
   const [newTodo, setNewTodo] = useState("")
   const [newTodoPomos, setNewTodoPomos] = useState(1)
   const [newTodoTags, setNewTodoTags] = useState("")
   const [newTodoPriority, setNewTodoPriority] = useState<"low" | "medium" | "high">("medium")
+  const [newTodoDeadline, setNewTodoDeadline] = useState("")
+  const [oneThingView, setOneThingView] = useState(false)
   const [viewMode, setViewMode] = useState<"list" | "grid">("list")
+  const [isChaosMode, setIsChaosMode] = useState(false)
+  const [chaosText, setChaosText] = useState("")
   const [dailyGoal, setDailyGoal] = useState(8)
   const [isPaused, setIsPaused] = useState(false)
   const [initialTime, setInitialTime] = useState<number | null>(null)
@@ -116,7 +120,8 @@ export default function MixPage() {
     lastSessionDate: string | null;
     longestSession: number;
     soundUsage: Record<string, number>;
-  }>({ history: [], streak: 0, lastSessionDate: null, longestSession: 0, soundUsage: {} })
+    completions: { date: string; priority: "low" | "medium" | "high" }[];
+  }>({ history: [], streak: 0, lastSessionDate: null, longestSession: 0, soundUsage: {}, completions: [] })
 
   const activeSound = sounds.find((s) => s.id === themeId) || sounds[0]
   const activeColor = activeSound?.color || "#FF6B35"
@@ -194,6 +199,7 @@ export default function MixPage() {
           completedPomos: todo.completedPomos || 0,
           tags: todo.tags || [],
           priority: todo.priority || "medium",
+          deadline: todo.deadline,
         }))
         setTodos(migratedTodos)
       } catch (e) {
@@ -272,7 +278,13 @@ export default function MixPage() {
   useEffect(() => {
     const savedAnalytics = localStorage.getItem("renew-analytics")
     if (savedAnalytics) {
-      try { setAnalytics(JSON.parse(savedAnalytics)) } catch (e) { console.error(e) }
+      try { 
+        const parsed = JSON.parse(savedAnalytics)
+        setAnalytics({
+            ...parsed,
+            completions: parsed.completions || []
+        }) 
+      } catch (e) { console.error(e) }
     }
   }, [])
 
@@ -349,14 +361,30 @@ const toggleSound = (id: string) => {
     e.preventDefault()
     if (!newTodo.trim()) return
     const tags = newTodoTags.split(",").map(t => t.trim()).filter(t => t)
-    setTodos([...todos, { id: Date.now().toString(), text: newTodo, completed: false, pomoSessions: newTodoPomos, completedPomos: 0, tags, priority: newTodoPriority }])
+    setTodos([{ id: Date.now().toString(), text: newTodo, completed: false, pomoSessions: newTodoPomos, completedPomos: 0, tags, priority: newTodoPriority, deadline: newTodoDeadline || undefined }, ...todos])
     setNewTodo("")
     setNewTodoPomos(1)
     setNewTodoTags("")
     setNewTodoPriority("medium")
+    setNewTodoDeadline("")
   }
 
   const toggleTodo = (id: string) => {
+    if (oneThingView) {
+        const currentTask = todos.find(t => !t.completed)
+        if (currentTask && currentTask.id === id) {
+            setOneThingView(false)
+        }
+    }
+    
+    // Analytics: Track completion
+    const todo = todos.find(t => t.id === id)
+    if (todo && !todo.completed) {
+        setAnalytics(prev => ({
+            ...prev,
+            completions: [...(prev.completions || []), { date: new Date().toISOString(), priority: todo.priority }]
+        }))
+    }
     setTodos(todos.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t)))
   }
 
@@ -372,6 +400,74 @@ const toggleSound = (id: string) => {
   const updatePomoEstimate = (id: string, newEstimate: number) => {
     setTodos(todos.map((t) => (t.id === id ? { ...t, pomoSessions: newEstimate } : t)))
   }
+
+  const autoSortTasks = () => {
+    const getDeadlineScore = (deadline?: string): number => {
+      if (!deadline) return 0;
+      const deadlineDate = new Date(deadline);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Compare dates only
+      const daysUntil = Math.ceil((deadlineDate.getTime() - today.getTime()) / (1000 * 3600 * 24));
+      
+      if (daysUntil < 0) return 10; // Overdue
+      if (daysUntil === 0) return 5; // Due today
+      if (daysUntil === 1) return 3; // Due tomorrow
+      return 1 / daysUntil;
+    };
+
+    const calculateHeat = (todo: typeof todos[0]) => {
+      if (todo.completed) return -Infinity;
+      const priorityMap = { high: 3, medium: 2, low: 1 };
+      const priorityScore = priorityMap[todo.priority] * 2;
+      const pomoScore = todo.pomoSessions * 0.5;
+      const deadlineScore = getDeadlineScore(todo.deadline);
+      return priorityScore + pomoScore + deadlineScore;
+    };
+
+    const sortedTodos = [...todos].sort((a, b) => calculateHeat(b) - calculateHeat(a));
+    setTodos(sortedTodos);
+  };
+
+  const handleChaosCleanup = () => {
+    if (!chaosText.trim()) return;
+
+    // This is a simplified simulation of an AI model processing the text.
+    // A real implementation would involve an API call to a language model.
+    const lines = chaosText.split('\n').filter(line => line.trim() !== '');
+    const newTodos = lines.map(line => {
+        let text = line;
+        let priority: "low" | "medium" | "high" = "medium";
+        let pomoSessions = 1;
+        let tags: string[] = [];
+
+        // Simple priority detection
+        if (/\b(urgent|important|asap|!)\b/i.test(text)) {
+            priority = "high";
+        } else if (/\b(later|sometime)\b/i.test(text)) {
+            priority = "low";
+        }
+
+        // Simple Pomodoro detection (e.g., "for 3 pomos", " (2p)")
+        const pomoMatch = text.match(/(?:for |\(|)(\d+)\s?(?:pomo|pomos|p)\b/i);
+        if (pomoMatch && pomoMatch[1]) {
+            pomoSessions = parseInt(pomoMatch[1], 10) || 1;
+            text = text.replace(pomoMatch[0], '').trim(); // Clean up the text
+        }
+
+        // Simple tag detection (e.g., "#work", "#personal")
+        const tagMatches = text.match(/#(\w+)/g);
+        if (tagMatches) {
+            tags = tagMatches.map(tag => tag.substring(1));
+            text = text.replace(/#(\w+)/g, '').trim(); // Clean up the text
+        }
+
+        return { id: `${Date.now()}-${Math.random()}`, text: text.trim(), completed: false, pomoSessions, completedPomos: 0, tags, priority, deadline: undefined };
+    });
+
+    setTodos(prevTodos => [...newTodos, ...prevTodos]);
+    setChaosText("");
+    setIsChaosMode(false);
+  };
 
   const startTimer = (seconds: number, breakSeconds?: number | null) => {
     setTimer(seconds)
@@ -436,6 +532,20 @@ const toggleSound = (id: string) => {
     .filter((todo) => !todo.completed)
     .reduce((sum, todo) => sum + todo.pomoSessions, 0)
 
+  const currentTask = todos.find(todo => !todo.completed)
+
+  const formatDeadline = (deadline: string) => {
+    const date = new Date(deadline)
+    const today = new Date()
+    const tomorrow = new Date()
+    tomorrow.setDate(today.getDate() + 1)
+    
+    if (date.toDateString() === today.toDateString()) return "Today"
+    if (date.toDateString() === tomorrow.toDateString()) return "Tomorrow"
+
+    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(date)
+  }
+
   // Analytics Calculations
   const last7Days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date()
@@ -451,6 +561,21 @@ const toggleSound = (id: string) => {
     return { day: day.toLocaleDateString('en-US', { weekday: 'short' }), duration }
   })
   const maxDailyDuration = Math.max(...weeklyData.map(d => d.duration), 1)
+
+  // Energy Mapping Calculation
+  const energyData = Array(24).fill(0);
+  (analytics.completions || []).filter(c => c.priority === 'high').forEach(c => {
+      const hour = new Date(c.date).getHours();
+      energyData[hour]++;
+  });
+  const maxEnergy = Math.max(...energyData, 1);
+
+  // Focus Streak Visual Calculation
+  const todayStr = new Date().toDateString();
+  const durationToday = analytics.history
+      .filter(h => new Date(h.date).toDateString() === todayStr)
+      .reduce((acc, curr) => acc + curr.duration, 0);
+  const focusLevel = Math.floor(durationToday / (25 * 60)); // 25 mins in seconds
 
   return (
     <>
@@ -488,7 +613,33 @@ const toggleSound = (id: string) => {
 
       <main className="relative z-10 min-h-screen pt-32">
         <div className="max-w-6xl mx-auto mb-45">
-          
+          {oneThingView && currentTask ? (
+            <div className="text-center flex flex-col items-center justify-center min-h-[40vh]">
+                <motion.h1
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-[8vw] leading-tight font-black tracking-tighter mb-8 transition-colors duration-500"
+                    style={{ color: activeColor }}
+                >
+                    {currentTask.text}
+                </motion.h1>
+                <motion.button
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.2 }}
+                    onClick={() => toggleTodo(currentTask.id)}
+                    className="flex items-center gap-3 px-8 py-4 rounded-full border-2 text-xl font-bold transition-all hover:scale-105 active:scale-95"
+                    style={{
+                        borderColor: activeColor,
+                        color: activeColor,
+                    }}
+                >
+                    <FaCheck />
+                    <span>Done</span>
+                </motion.button>
+            </div>
+          ) : (
+          <>
           {/* Section Header */}
           <header className="mb-12">
             <h1 
@@ -818,7 +969,32 @@ const toggleSound = (id: string) => {
                         </span>
                     )}
                 </div>
-                <div className="flex gap-1 bg-white/40 backdrop-blur-sm p-1 rounded-xl border-2" style={{ borderColor: activeColor }}>
+                <div className="flex items-center gap-2 relative z-30">
+                    <button
+                        onClick={() => setIsChaosMode(!isChaosMode)}
+                        className={`p-3 rounded-lg transition-all bg-white/40 backdrop-blur-sm border-2 hover:bg-[#F6D2B5]/80 ${isChaosMode ? 'bg-white/80' : ''}`}
+                        style={{ borderColor: activeColor, color: activeColor }}
+                        title="Brain Dump"
+                    >
+                        <FaBrain size={14} />
+                    </button>
+                    <button
+                        onClick={() => setOneThingView(true)}
+                        className="p-3 rounded-lg transition-all bg-white/40 backdrop-blur-sm border-2 hover:bg-[#F6D2B5]/80"
+                        style={{ borderColor: activeColor, color: activeColor }}
+                        title="Focus on one task"
+                    >
+                        <FaBullseye size={14} />
+                    </button>
+                    <button
+                        onClick={autoSortTasks}
+                        className="p-3 rounded-lg transition-all bg-white/40 backdrop-blur-sm border-2 hover:bg-[#F6D2B5]/80"
+                        style={{ borderColor: activeColor, color: activeColor }}
+                        title="Auto-sort by heat map"
+                    >
+                        <FaChartBar size={14} />
+                    </button>
+                    <div className="flex gap-1 bg-white/40 backdrop-blur-sm p-1 rounded-xl border-2" style={{ borderColor: activeColor }}>
                     <button
                         onClick={() => setViewMode("list")}
                         className={`p-2 rounded-lg transition-all ${viewMode === "list" ? "bg-white shadow-sm" : "hover:bg-white/50"}`}
@@ -833,68 +1009,104 @@ const toggleSound = (id: string) => {
                     >
                         <FaThLarge size={14} />
                     </button>
+                    </div>
                 </div>
             </div>
             
-            <form onSubmit={addTodo} className="flex flex-col gap-4 mb-8 relative z-20">
-              <div className="flex gap-4">
-                <input 
-                  type="text" 
-                  value={newTodo}
-                  onChange={(e) => setNewTodo(e.target.value)}
-                  placeholder="What needs to be done?"
-                  className="flex-1 px-6 py-4 rounded-2xl border-2 bg-white/80 backdrop-blur-sm focus:outline-none transition-all placeholder:text-gray-400 text-lg"
-                  style={{ 
-                    borderColor: newTodo ? activeColor : 'transparent',
-                    color: '#4A4A4A'
+            {isChaosMode ? (
+              <div className="flex flex-col gap-4 mb-8 relative z-20 animate-in fade-in duration-300">
+                <textarea
+                  value={chaosText}
+                  onChange={(e) => setChaosText(e.target.value)}
+                  placeholder="Vent everything on your mind... then let the AI sort it out."
+                  className="w-full h-40 px-6 py-4 rounded-2xl border-2 bg-white/80 backdrop-blur-sm focus:outline-none transition-all placeholder:text-gray-400 text-lg"
+                  style={{
+                    borderColor: chaosText ? activeColor : 'transparent',
+                    color: '#4A4A4A',
+                    resize: 'none'
                   }}
                 />
+                <button
+                  type="button"
+                  onClick={handleChaosCleanup}
+                  className="w-full px-8 py-4 rounded-2xl font-bold text-white transition-transform active:scale-95 shadow-lg hover:opacity-90 cursor-pointer flex items-center justify-center gap-3"
+                  style={{ backgroundColor: activeColor }}
+                  disabled={!chaosText.trim()}
+                >
+                  <FaMagic />
+                  <span>Clean Up</span>
+                </button>
               </div>
-              <div className="flex gap-4">
-                <div className="flex-1 flex items-center gap-2 px-6 py-4 rounded-2xl border-2 bg-white/80 backdrop-blur-sm transition-all">
-                  <FaTag className="text-gray-400" />
+            ) : (
+              <form onSubmit={addTodo} className="flex flex-col gap-4 mb-8 relative z-20">
+                <div className="flex gap-4">
                   <input 
                     type="text" 
-                    value={newTodoTags}
-                    onChange={(e) => setNewTodoTags(e.target.value)}
-                    placeholder="Tags (comma separated)"
-                    className="flex-1 bg-transparent focus:outline-none placeholder:text-gray-400 text-sm"
+                    value={newTodo}
+                    onChange={(e) => setNewTodo(e.target.value)}
+                    placeholder="What needs to be done?"
+                    className="flex-1 px-6 py-4 rounded-2xl border-2 bg-white/80 backdrop-blur-sm focus:outline-none transition-all placeholder:text-gray-400 text-lg"
+                    style={{ 
+                      borderColor: newTodo ? activeColor : 'transparent',
+                      color: '#4A4A4A'
+                    }}
+                  />
+                  <input
+                    type="date"
+                    value={newTodoDeadline}
+                    onChange={(e) => setNewTodoDeadline(e.target.value)}
+                    className="px-6 py-4 rounded-2xl border-2 bg-white/80 backdrop-blur-sm focus:outline-none transition-all text-gray-400"
+                    style={{ 
+                      borderColor: newTodoDeadline ? activeColor : 'transparent',
+                    }}
+                  />
+                </div>
+                <div className="flex gap-4">
+                  <div className="flex-1 flex items-center gap-2 px-6 py-4 rounded-2xl border-2 bg-white/80 backdrop-blur-sm transition-all">
+                    <FaTag className="text-gray-400" />
+                    <input 
+                      type="text" 
+                      value={newTodoTags}
+                      onChange={(e) => setNewTodoTags(e.target.value)}
+                      placeholder="Tags (comma separated)"
+                      className="flex-1 bg-transparent focus:outline-none placeholder:text-gray-400 text-sm"
+                      style={{ color: '#4A4A4A' }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 px-4 py-4 rounded-2xl border-2 bg-white/80 backdrop-blur-sm transition-all">
+                      <FaFlag className={newTodoPriority === 'high' ? 'text-red-500' : newTodoPriority === 'medium' ? 'text-yellow-500' : 'text-green-500'} />
+                      <select
+                        value={newTodoPriority}
+                        onChange={(e) => setNewTodoPriority(e.target.value as any)}
+                        className="bg-transparent focus:outline-none text-sm font-bold uppercase tracking-wider cursor-pointer"
+                        style={{ color: '#4A4A4A' }}
+                      >
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                  </div>
+                <div className="flex items-center gap-2 bg-white/80 backdrop-blur-sm rounded-2xl px-4">
+                  <span className="text-2xl">🍅</span>
+                  <input
+                    type="number"
+                    value={newTodoPomos}
+                    onChange={(e) => setNewTodoPomos(Math.max(1, parseInt(e.target.value) || 1))}
+                    min="1"
+                    className="w-12 bg-transparent focus:outline-none text-lg font-bold text-center"
                     style={{ color: '#4A4A4A' }}
                   />
                 </div>
-                <div className="flex items-center gap-2 px-4 py-4 rounded-2xl border-2 bg-white/80 backdrop-blur-sm transition-all">
-                    <FaFlag className={newTodoPriority === 'high' ? 'text-red-500' : newTodoPriority === 'medium' ? 'text-yellow-500' : 'text-green-500'} />
-                    <select
-                      value={newTodoPriority}
-                      onChange={(e) => setNewTodoPriority(e.target.value as any)}
-                      className="bg-transparent focus:outline-none text-sm font-bold uppercase tracking-wider cursor-pointer"
-                      style={{ color: '#4A4A4A' }}
-                    >
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                    </select>
-                 </div>
-              <div className="flex items-center gap-2 bg-white/80 backdrop-blur-sm rounded-2xl px-4">
-                <span className="text-2xl">🍅</span>
-                <input
-                  type="number"
-                  value={newTodoPomos}
-                  onChange={(e) => setNewTodoPomos(Math.max(1, parseInt(e.target.value) || 1))}
-                  min="1"
-                  className="w-12 bg-transparent focus:outline-none text-lg font-bold text-center"
-                  style={{ color: '#4A4A4A' }}
-                />
-              </div>
-              <button 
-                type="submit"
-                className="px-8 py-4 rounded-2xl font-bold text-white transition-transform active:scale-95 shadow-lg hover:opacity-90 cursor-pointer"
-                style={{ backgroundColor: activeColor }}
-              >
-                Add
-              </button>
-              </div>
-            </form>
+                <button 
+                  type="submit"
+                  className="px-8 py-4 rounded-2xl font-bold text-white transition-transform active:scale-95 shadow-lg hover:opacity-90 cursor-pointer"
+                  style={{ backgroundColor: activeColor }}
+                >
+                  Add
+                </button>
+                </div>
+              </form>
+            )}
 
             {viewMode === "list" ? (
             <Reorder.Group axis="y" values={todos} onReorder={setTodos} className="space-y-3 relative z-20">
@@ -933,13 +1145,14 @@ const toggleSound = (id: string) => {
                             {todo.priority}
                         </span>
                     </div>
-                    {todo.tags && todo.tags.length > 0 && (
-                      <div className="flex gap-1 mt-1 flex-wrap">
-                        {todo.tags.map(tag => (
-                          <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-black/5 text-black/50 font-bold uppercase tracking-wider">{tag}</span>
-                        ))}
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      {todo.deadline && (
+                        <span className="text-xs font-bold text-gray-500">{formatDeadline(todo.deadline)}</span>
+                      )}
+                      {todo.tags.map(tag => (
+                        <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-black/5 text-black/50 font-bold uppercase tracking-wider">{tag}</span>
+                      ))}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <div 
@@ -1006,13 +1219,14 @@ const toggleSound = (id: string) => {
                                 <p className={`text-lg font-medium mb-2 ${todo.completed ? 'line-through text-gray-400' : 'text-gray-700'}`}>
                                     {todo.text}
                                 </p>
-                                {todo.tags && todo.tags.length > 0 && (
-                                    <div className="flex gap-1 flex-wrap">
-                                    {todo.tags.map(tag => (
-                                        <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-black/5 text-black/50 font-bold uppercase tracking-wider">{tag}</span>
-                                    ))}
-                                    </div>
-                                )}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {todo.deadline && (
+                                    <span className="text-xs font-bold text-gray-500">{formatDeadline(todo.deadline)}</span>
+                                  )}
+                                  {todo.tags.map(tag => (
+                                    <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-black/5 text-black/50 font-bold uppercase tracking-wider">{tag}</span>
+                                  ))}
+                                </div>
                             </div>
 
                             <div className="flex items-center justify-between pt-4 border-t border-black/5">
@@ -1044,7 +1258,45 @@ const toggleSound = (id: string) => {
 
           {/* Analytics Tab */}
           {activeTab === "analytics" && (
-            <div className="max-w-4xl mx-auto animate-in fade-in duration-500">
+            <div className="max-w-5xl mx-auto animate-in fade-in duration-500 space-y-8">
+              
+              {/* Focus Streak Visual */}
+              <div className="bg-white/60 backdrop-blur-sm p-8 rounded-[2.5rem] flex flex-col md:flex-row items-center justify-between gap-8 border-2 border-white/50">
+                <div className="flex-1 text-center md:text-left">
+                    <h3 className="text-2xl font-black mb-2" style={{ color: activeColor }}>Focus Garden</h3>
+                    <p className="text-gray-600 mb-4">Your plant grows for every 25 minutes of focus today.</p>
+                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/50 text-sm font-bold" style={{ color: activeColor }}>
+                        <FaBolt />
+                        <span>{Math.round(durationToday / 60)} mins focused today</span>
+                    </div>
+                </div>
+                <div className="flex items-end gap-4 h-32">
+                    {[0, 1, 2, 3].map((stage) => (
+                        <div key={stage} className="flex flex-col items-center gap-2">
+                            <motion.div 
+                                initial={{ scale: 0 }}
+                                animate={{ 
+                                    scale: focusLevel >= stage ? 1 : 0.5,
+                                    opacity: focusLevel >= stage ? 1 : 0.3,
+                                    filter: focusLevel >= stage ? 'grayscale(0%)' : 'grayscale(100%)'
+                                }}
+                                className="transition-all duration-500"
+                                style={{ color: focusLevel >= stage ? activeColor : '#ccc' }}
+                            >
+                                {stage === 0 && <FaSeedling size={24} />}
+                                {stage === 1 && <FaSeedling size={32} />}
+                                {stage === 2 && <FaTree size={40} />}
+                                {stage === 3 && <FaTree size={56} />}
+                            </motion.div>
+                            {focusLevel >= stage && (
+                                <motion.div layoutId="active-stage" className="w-2 h-2 rounded-full" style={{ backgroundColor: activeColor }} />
+                            )}
+                        </div>
+                    ))}
+                </div>
+              </div>
+
+              {/* Stats Grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">
                 <div className="bg-white/60 backdrop-blur-sm p-6 rounded-3xl text-center">
                   <div className="text-3xl font-black mb-2" style={{ color: activeColor }}>{analytics.streak}</div>
@@ -1070,28 +1322,56 @@ const toggleSound = (id: string) => {
                 </div>
               </div>
 
-              <div className="bg-white/60 backdrop-blur-sm p-8 rounded-[2.5rem]">
-                <h3 className="text-xl font-bold mb-8 text-center uppercase tracking-widest opacity-80" style={{ color: activeColor }}>Weekly Focus</h3>
-                <div className="flex items-end justify-between h-48 gap-2">
-                  {weeklyData.map((data, i) => (
-                    <div key={i} className="flex flex-col items-center gap-2 flex-1">
-                      <div 
-                        className="w-full rounded-t-xl transition-all duration-1000 ease-out"
-                        style={{ 
-                          height: `${(data.duration / maxDailyDuration) * 100}%`,
-                          backgroundColor: activeColor,
-                          opacity: 0.8
-                        }}
-                      />
-                      <span className="text-xs font-bold opacity-50">{data.day}</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* Weekly Focus Chart */}
+                <div className="bg-white/60 backdrop-blur-sm p-8 rounded-[2.5rem]">
+                    <h3 className="text-xl font-bold mb-8 text-center uppercase tracking-widest opacity-80" style={{ color: activeColor }}>Weekly Focus</h3>
+                    <div className="flex items-end justify-between h-48 gap-2">
+                    {weeklyData.map((data, i) => (
+                        <div key={i} className="flex flex-col items-center gap-2 flex-1">
+                        <div 
+                            className="w-full rounded-t-xl transition-all duration-1000 ease-out"
+                            style={{ 
+                            height: `${(data.duration / maxDailyDuration) * 100}%`,
+                            backgroundColor: activeColor,
+                            opacity: 0.8
+                            }}
+                        />
+                        <span className="text-[10px] font-bold opacity-50">{data.day}</span>
+                        </div>
+                    ))}
                     </div>
-                  ))}
+                </div>
+
+                {/* Energy Mapping Chart */}
+                <div className="bg-white/60 backdrop-blur-sm p-8 rounded-[2.5rem]">
+                    <h3 className="text-xl font-bold mb-8 text-center uppercase tracking-widest opacity-80" style={{ color: activeColor }}>Peak Energy</h3>
+                    <div className="flex items-end justify-between h-48 gap-1">
+                    {energyData.map((count, i) => (
+                        <div key={i} className="flex flex-col items-center gap-2 flex-1 group relative">
+                        <div 
+                            className="w-full rounded-t-sm transition-all duration-1000 ease-out hover:opacity-100"
+                            style={{ 
+                            height: `${(count / maxEnergy) * 100}%`,
+                            backgroundColor: activeColor,
+                            opacity: count > 0 ? 0.8 : 0.1
+                            }}
+                        />
+                        {i % 6 === 0 && (
+                            <span className="text-[10px] font-bold opacity-50 absolute -bottom-6">{i}h</span>
+                        )}
+                        </div>
+                    ))}
+                    </div>
+                    <p className="text-center text-xs text-gray-400 mt-6">High priority tasks completed by hour of day</p>
                 </div>
               </div>
             </div>
           )}
+          </>
+          )}
 
-          {/* Footer Info Section */}
+     
        
         </div>
               <Footer/>
