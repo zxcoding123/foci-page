@@ -24,8 +24,6 @@ export default function MixPage() {
   const [themeId, setThemeId] = useState<string>("fire")
   const [volumes, setVolumes] = useState<Record<string, number>>({ fire: 40 })
   const [timer, setTimer] = useState<number | null>(null)
-  const [customMinutes, setCustomMinutes] = useState("")
-  const [customBreakMinutes, setCustomBreakMinutes] = useState("")
   const [isCustomTimerOpen, setIsCustomTimerOpen] = useState(false)
   const [todos, setTodos] = useState<Todo[]>([])
   const [newTodo, setNewTodo] = useState("")
@@ -409,8 +407,6 @@ const toggleSound = (id: string) => {
     setInitialTime(seconds)
     setIsPaused(true)
     setIsCustomTimerOpen(false)
-    setCustomMinutes("")
-    setCustomBreakMinutes("")
     setSessionType("work")
     setBreakDuration(breakSeconds || null)
   }
@@ -637,10 +633,6 @@ const toggleSound = (id: string) => {
               sessionType={sessionType}
               activeColor={activeColor}
               isCustomTimerOpen={isCustomTimerOpen}
-              customMinutes={customMinutes}
-              customBreakMinutes={customBreakMinutes}
-              setCustomMinutes={setCustomMinutes}
-              setCustomBreakMinutes={setCustomBreakMinutes}
               setIsCustomTimerOpen={setIsCustomTimerOpen}
               setIsPaused={setIsPaused}
               setTimer={setTimer}
@@ -727,6 +719,7 @@ const toggleSound = (id: string) => {
       {pipWindow && timer !== null && createPortal(
         <MixTimerPip
           timer={timer}
+          initialTime={initialTime ?? timer}
           sessionType={sessionType}
           isPaused={isPaused}
           activeColor={activeColor}
@@ -738,6 +731,15 @@ const toggleSound = (id: string) => {
             setIsPaused(false)
             setSessionType(null)
             setBreakDuration(null)
+          }}
+          onRestart={() => {
+            if (initialTime !== null) {
+              setTimer(initialTime)
+              setIsPaused(true)
+            }
+          }}
+          onAdjustTime={(delta) => {
+            setTimer((t) => (t !== null ? Math.max(0, t + delta) : t))
           }}
         />,
         pipWindow.document.body

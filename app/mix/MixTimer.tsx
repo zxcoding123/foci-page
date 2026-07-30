@@ -1,7 +1,8 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { motion } from "framer-motion"
-import { FaPlay, FaPause, FaStop, FaRedo, FaExternalLinkAlt } from "react-icons/fa"
+import { FaPlay, FaPause, FaStop, FaRedo, FaExternalLinkAlt, FaMinus, FaPlus } from "react-icons/fa"
 import { TimerButton, timerPresets } from "./constants"
 
 type SessionType = "work" | "break" | null
@@ -13,10 +14,6 @@ interface MixTimerProps {
   sessionType: SessionType
   activeColor: string
   isCustomTimerOpen: boolean
-  customMinutes: string
-  customBreakMinutes: string
-  setCustomMinutes: (value: string) => void
-  setCustomBreakMinutes: (value: string) => void
   setIsCustomTimerOpen: (value: boolean) => void
   setIsPaused: (value: boolean) => void
   setTimer: (value: number | null) => void
@@ -38,10 +35,6 @@ export default function MixTimer({
   sessionType,
   activeColor,
   isCustomTimerOpen,
-  customMinutes,
-  customBreakMinutes,
-  setCustomMinutes,
-  setCustomBreakMinutes,
   setIsCustomTimerOpen,
   setIsPaused,
   setTimer,
@@ -55,6 +48,13 @@ export default function MixTimer({
   onOpenPip,
   onClosePip,
 }: MixTimerProps) {
+  const [workH, setWorkH] = useState(0)
+  const [workM, setWorkM] = useState(25)
+  const [workS, setWorkS] = useState(0)
+  const [breakH, setBreakH] = useState(0)
+  const [breakM, setBreakM] = useState(0)
+  const [breakS, setBreakS] = useState(0)
+
   const resetTimer = () => {
     setTimer(null)
     setInitialTime(null)
@@ -62,6 +62,25 @@ export default function MixTimer({
     setSessionType(null)
     setBreakDuration(null)
   }
+
+  const workTotalSeconds = workH * 3600 + workM * 60 + workS
+  const breakTotalSeconds = breakH * 3600 + breakM * 60 + breakS
+
+  const closeCustomTimer = () => setIsCustomTimerOpen(false)
+
+  const submitCustomTimer = () => {
+    if (workTotalSeconds <= 0) return
+    startTimer(workTotalSeconds, breakTotalSeconds > 0 ? breakTotalSeconds : null)
+  }
+
+  useEffect(() => {
+    if (!isCustomTimerOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeCustomTimer()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [isCustomTimerOpen])
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[40vh] animate-in fade-in duration-500">
@@ -178,57 +197,117 @@ export default function MixTimer({
 
       {/* Custom Timer Dialog */}
       {isCustomTimerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm p-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeCustomTimer()
+          }}
+        >
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-sm"
             >
-                <h3 className="text-2xl font-bold mb-6 text-center" style={{ color: activeColor }}>Set Custom Timer</h3>
-                <div className="flex gap-3">
-                    <input
-                      type="number"
-                      value={customMinutes}
-                      onChange={(e) => setCustomMinutes(e.target.value)}
-                      placeholder="Work (mins)"
-                      className="flex-1 px-4 py-3 rounded-xl border-2 border-gray-100 focus:outline-none text-lg font-bold text-gray-700"
-                      style={{ caretColor: activeColor }}
-                      autoFocus
-                    />
-                    <input
-                      type="number"
-                      value={customBreakMinutes}
-                      onChange={(e) => setCustomBreakMinutes(e.target.value)}
-                      placeholder="Break (mins)"
-                      className="flex-1 px-4 py-3 rounded-xl border-2 border-gray-100 focus:outline-none text-lg font-bold text-gray-700"
-                      style={{ caretColor: activeColor }}
-                    />
-                </div>
-                <div className="mt-6 flex flex-col gap-2">
-                  <button
-                      onClick={() => {
-                          if (customMinutes) {
-                              startTimer(
-                                parseInt(customMinutes) * 60,
-                                customBreakMinutes ? parseInt(customBreakMinutes) * 60 : null
-                              )
-                          }
-                      }}
-                      className="px-8 py-3 rounded-xl font-bold text-white transition-transform active:scale-95"
-                      style={{ backgroundColor: activeColor }}
-                    >
-                      Start
-                  </button>
-                  <button
-                  onClick={() => setIsCustomTimerOpen(false)}
-                  className="text-sm font-medium text-gray-400 hover:text-gray-600 w-full text-center transition-colors py-2"
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    submitCustomTimer()
+                  }}
                 >
-                  Cancel
-                </button>
-                </div>
+                  <h3 className="text-2xl font-bold mb-6 text-center" style={{ color: activeColor }}>Set Custom Timer</h3>
+
+                  <span className="text-xs font-bold uppercase tracking-widest opacity-50">Focus</span>
+                  <div className="flex gap-2 mt-2 mb-5">
+                    <TimeUnitField label="hr" value={workH} onChange={setWorkH} max={23} activeColor={activeColor} autoFocus />
+                    <TimeUnitField label="min" value={workM} onChange={setWorkM} max={59} activeColor={activeColor} />
+                    <TimeUnitField label="sec" value={workS} onChange={setWorkS} max={59} activeColor={activeColor} />
+                  </div>
+
+                  <span className="text-xs font-bold uppercase tracking-widest opacity-50">Break (optional)</span>
+                  <div className="flex gap-2 mt-2">
+                    <TimeUnitField label="hr" value={breakH} onChange={setBreakH} max={23} activeColor={activeColor} />
+                    <TimeUnitField label="min" value={breakM} onChange={setBreakM} max={59} activeColor={activeColor} />
+                    <TimeUnitField label="sec" value={breakS} onChange={setBreakS} max={59} activeColor={activeColor} />
+                  </div>
+
+                  <div className="mt-6 flex flex-col gap-2">
+                    <button
+                        type="submit"
+                        disabled={workTotalSeconds <= 0}
+                        className="px-8 py-3 rounded-xl font-bold text-white transition-transform active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                        style={{ backgroundColor: activeColor }}
+                      >
+                        Start
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closeCustomTimer}
+                      className="text-sm font-medium text-gray-400 hover:text-gray-600 w-full text-center transition-colors py-2"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
             </motion.div>
         </div>
       )}
+    </div>
+  )
+}
+
+function TimeUnitField({
+  label,
+  value,
+  onChange,
+  max,
+  activeColor,
+  autoFocus,
+}: {
+  label: string
+  value: number
+  onChange: (value: number) => void
+  max: number
+  activeColor: string
+  autoFocus?: boolean
+}) {
+  const clamp = (n: number) => Math.min(max, Math.max(0, n))
+
+  return (
+    <div className="flex-1 flex flex-col items-center gap-1">
+      <div className="w-full flex items-center rounded-xl border-2 border-gray-100 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => onChange(clamp(value - 1))}
+          className="px-2 py-3 text-gray-400 hover:text-gray-700 transition-colors"
+          tabIndex={-1}
+        >
+          <FaMinus size={10} />
+        </button>
+        <input
+          type="number"
+          inputMode="numeric"
+          value={value}
+          min={0}
+          max={max}
+          autoFocus={autoFocus}
+          onChange={(e) => {
+            const parsed = parseInt(e.target.value, 10)
+            onChange(Number.isNaN(parsed) ? 0 : clamp(parsed))
+          }}
+          onFocus={(e) => e.target.select()}
+          className="w-full min-w-0 px-1 py-3 text-center text-lg font-bold text-gray-700 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          style={{ caretColor: activeColor }}
+        />
+        <button
+          type="button"
+          onClick={() => onChange(clamp(value + 1))}
+          className="px-2 py-3 text-gray-400 hover:text-gray-700 transition-colors"
+          tabIndex={-1}
+        >
+          <FaPlus size={10} />
+        </button>
+      </div>
+      <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{label}</span>
     </div>
   )
 }
