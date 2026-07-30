@@ -7,7 +7,7 @@ import { FaCheck } from "react-icons/fa"
 import Navbar from "@/components/sections/header"
 import Footer from "@/components/sections/footer"
 import CustomCursor from "@/components/ui/customCursor";
-import { sounds, soundSources, TabButton, Todo, AnalyticsData, Priority } from "./constants"
+import { sounds, soundSources, TabButton, Todo, AnalyticsData, Priority, Difficulty, difficultyPresets } from "./constants"
 import MixTimer from "./MixTimer"
 import MixAmbience from "./MixAmbience"
 import MixTodos from "./MixTodos"
@@ -31,6 +31,7 @@ export default function MixPage() {
   const [newTodoTags, setNewTodoTags] = useState("")
   const [newTodoPriority, setNewTodoPriority] = useState<Priority>("medium")
   const [newTodoDeadline, setNewTodoDeadline] = useState("")
+  const [newTodoDifficulty, setNewTodoDifficulty] = useState<Difficulty>("easy")
   const [oneThingView, setOneThingView] = useState(false)
   const [viewMode, setViewMode] = useState<"list" | "grid">("list")
   const [isChaosMode, setIsChaosMode] = useState(false)
@@ -45,60 +46,157 @@ export default function MixPage() {
   const [dailySessions, setDailySessions] = useState(0)
   const [analytics, setAnalytics] = useState<AnalyticsData>({ history: [], streak: 0, lastSessionDate: null, longestSession: 0, soundUsage: {}, completions: [] })
 
+  // Auto-sequence: queued task ids waiting to auto-load once the current one finishes
+  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
+  const [focusQueue, setFocusQueue] = useState<string[]>([])
+
+  // Overtime / flow tracking
+  const [isOvertime, setIsOvertime] = useState(false)
+  const [overtimeSeconds, setOvertimeSeconds] = useState(0)
+  const [awaitingBreakChoice, setAwaitingBreakChoice] = useState(false)
+  const breakChoiceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const workDurationRef = useRef(0)
+
   const activeSound = sounds.find((s) => s.id === themeId) || sounds[0]
   const activeColor = activeSound?.color || "#FF6B35"
 
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({})
   const fadeIntervals = useRef<Record<string, NodeJS.Timeout>>({})
 
+  const recordWorkSession = (duration: number) => {
+    const now = new Date()
+    const todayStr = now.toDateString()
+    const lastSession = analytics.lastSessionDate ? new Date(analytics.lastSessionDate) : null
+    const lastSessionStr = lastSession ? lastSession.toDateString() : null
+
+    let newStreak = analytics.streak
+    if (lastSessionStr !== todayStr) {
+        const yesterday = new Date(now)
+        yesterday.setDate(yesterday.getDate() - 1)
+        if (lastSessionStr === yesterday.toDateString()) {
+            newStreak++
+        } else {
+            newStreak = 1
+        }
+    } else if (newStreak === 0) {
+        newStreak = 1
+    }
+
+    const newHistory = [...analytics.history, { date: now.toISOString(), duration }]
+    const newLongest = Math.max(analytics.longestSession, duration)
+
+    const newSoundUsage = { ...analytics.soundUsage }
+    activeIds.forEach(id => {
+        newSoundUsage[id] = (newSoundUsage[id] || 0) + duration
+    })
+
+    setAnalytics(prev => ({ ...prev, history: newHistory, streak: newStreak, lastSessionDate: now.toISOString(), longestSession: newLongest, soundUsage: newSoundUsage }))
+  }
+
+  const startTaskTimer = (todo: Todo) => {
+    const preset = difficultyPresets[todo.difficulty || "easy"]
+    const workSeconds = preset.work * 60
+    const breakSeconds = preset.break * 60
+    workDurationRef.current = workSeconds
+    setTimer(workSeconds)
+    setInitialTime(workSeconds)
+    setIsPaused(false)
+    setIsCustomTimerOpen(false)
+    setSessionType("work")
+    setBreakDuration(breakSeconds)
+    setCurrentTaskId(todo.id)
+    setIsOvertime(false)
+    setOvertimeSeconds(0)
+    setAwaitingBreakChoice(false)
+  }
+
+  const startQueue = () => {
+    const incomplete = todos.filter(t => !t.completed)
+    if (incomplete.length === 0) return
+    const [first, ...rest] = incomplete
+    setFocusQueue(rest.map(t => t.id))
+    startTaskTimer(first)
+  }
+
+  const advanceQueueOrEnd = () => {
+    const nextId = focusQueue[0]
+    const nextTodo = nextId ? todos.find(t => t.id === nextId) : undefined
+    if (nextTodo) {
+      setFocusQueue(prev => prev.slice(1))
+      startTaskTimer(nextTodo)
+      return
+    }
+    setTimer(null)
+    setInitialTime(null)
+    setIsPaused(false)
+    setSessionType(null)
+    setBreakDuration(null)
+    setCurrentTaskId(null)
+    setFocusQueue([])
+    setIsOvertime(false)
+    setOvertimeSeconds(0)
+  }
+
+  const resolveBreakChoice = (choice: "break" | "flow") => {
+    if (breakChoiceTimeoutRef.current) {
+      clearTimeout(breakChoiceTimeoutRef.current)
+      breakChoiceTimeoutRef.current = null
+    }
+    setAwaitingBreakChoice(false)
+    if (choice === "break" && breakDuration) {
+      setTimer(breakDuration)
+      setInitialTime(breakDuration)
+      setBreakDuration(null)
+      setSessionType("break")
+    } else {
+      setIsOvertime(true)
+      setOvertimeSeconds(0)
+      setBreakDuration(null)
+    }
+  }
+
+  const wrapUpFlow = () => {
+    recordWorkSession(workDurationRef.current + overtimeSeconds)
+    advanceQueueOrEnd()
+  }
+
+  const endSession = () => {
+    if (breakChoiceTimeoutRef.current) {
+      clearTimeout(breakChoiceTimeoutRef.current)
+      breakChoiceTimeoutRef.current = null
+    }
+    setTimer(null)
+    setInitialTime(null)
+    setIsPaused(false)
+    setSessionType(null)
+    setBreakDuration(null)
+    setCurrentTaskId(null)
+    setFocusQueue([])
+    setIsOvertime(false)
+    setOvertimeSeconds(0)
+    setAwaitingBreakChoice(false)
+  }
+
   useEffect(() => {
-    if (timer === null || isPaused) return
+    if (timer === null || isPaused || awaitingBreakChoice || isOvertime) return
 
     if (timer <= 0) {
-      if (sessionType === "work" && breakDuration) {
-        setTimer(breakDuration)
-        setInitialTime(breakDuration)
-        setBreakDuration(null)
-        setSessionType("break")
+      if (sessionType === "work") {
         setDailySessions(prev => prev + 1)
-      } else {
-        if (sessionType === "work") {
-           setDailySessions(prev => prev + 1)
-
-           // Update Analytics
-           const now = new Date()
-           const todayStr = now.toDateString()
-           const lastSession = analytics.lastSessionDate ? new Date(analytics.lastSessionDate) : null
-           const lastSessionStr = lastSession ? lastSession.toDateString() : null
-
-           let newStreak = analytics.streak
-           if (lastSessionStr !== todayStr) {
-               const yesterday = new Date(now)
-               yesterday.setDate(yesterday.getDate() - 1)
-               if (lastSessionStr === yesterday.toDateString()) {
-                   newStreak++
-               } else {
-                   newStreak = 1
-               }
-           } else if (newStreak === 0) {
-               newStreak = 1
-           }
-
-           const duration = initialTime || 0
-           const newHistory = [...analytics.history, { date: now.toISOString(), duration }]
-           const newLongest = Math.max(analytics.longestSession, duration)
-
-           const newSoundUsage = { ...analytics.soundUsage }
-           activeIds.forEach(id => {
-               newSoundUsage[id] = (newSoundUsage[id] || 0) + duration
-           })
-
-           setAnalytics(prev => ({ ...prev, history: newHistory, streak: newStreak, lastSessionDate: now.toISOString(), longestSession: newLongest, soundUsage: newSoundUsage }))
+        if (currentTaskId) {
+          setTodos(prev => prev.map(t => t.id === currentTaskId ? { ...t, completedPomos: (t.completedPomos || 0) + 1 } : t))
         }
-        setTimer(null)
-        setInitialTime(null)
-        setIsPaused(false)
-        setSessionType(null)
+
+        if (breakDuration) {
+          setAwaitingBreakChoice(true)
+          breakChoiceTimeoutRef.current = setTimeout(() => resolveBreakChoice("break"), 12000)
+        } else {
+          recordWorkSession(workDurationRef.current)
+          advanceQueueOrEnd()
+        }
+      } else if (sessionType === "break") {
+        recordWorkSession(workDurationRef.current)
+        advanceQueueOrEnd()
       }
       return
     }
@@ -108,7 +206,19 @@ export default function MixPage() {
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [timer, isPaused, sessionType, breakDuration])
+  }, [timer, isPaused, sessionType, breakDuration, awaitingBreakChoice, isOvertime, currentTaskId])
+
+  useEffect(() => {
+    if (!isOvertime || isPaused) return
+    const interval = setInterval(() => setOvertimeSeconds((s) => s + 1), 1000)
+    return () => clearInterval(interval)
+  }, [isOvertime, isPaused])
+
+  useEffect(() => {
+    return () => {
+      if (breakChoiceTimeoutRef.current) clearTimeout(breakChoiceTimeoutRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     const savedTodos = localStorage.getItem("renew-todos")
@@ -122,6 +232,7 @@ export default function MixPage() {
           tags: todo.tags || [],
           priority: todo.priority || "medium",
           deadline: todo.deadline,
+          difficulty: todo.difficulty || "easy",
         }))
         setTodos(migratedTodos)
       } catch (e) {
@@ -294,12 +405,13 @@ const toggleSound = (id: string) => {
     e.preventDefault()
     if (!newTodo.trim()) return
     const tags = newTodoTags.split(",").map(t => t.trim()).filter(t => t)
-    setTodos([{ id: Date.now().toString(), text: newTodo, completed: false, pomoSessions: newTodoPomos, completedPomos: 0, tags, priority: newTodoPriority, deadline: newTodoDeadline || undefined }, ...todos])
+    setTodos([{ id: Date.now().toString(), text: newTodo, completed: false, pomoSessions: newTodoPomos, completedPomos: 0, tags, priority: newTodoPriority, deadline: newTodoDeadline || undefined, difficulty: newTodoDifficulty }, ...todos])
     setNewTodo("")
     setNewTodoPomos(1)
     setNewTodoTags("")
     setNewTodoPriority("medium")
     setNewTodoDeadline("")
+    setNewTodoDifficulty("easy")
   }
 
   const toggleTodo = (id: string) => {
@@ -394,7 +506,7 @@ const toggleSound = (id: string) => {
             text = text.replace(/#(\w+)/g, '').trim(); // Clean up the text
         }
 
-        return { id: `${Date.now()}-${Math.random()}`, text: text.trim(), completed: false, pomoSessions, completedPomos: 0, tags, priority, deadline: undefined };
+        return { id: `${Date.now()}-${Math.random()}`, text: text.trim(), completed: false, pomoSessions, completedPomos: 0, tags, priority, deadline: undefined, difficulty: "easy" as Difficulty };
     });
 
     setTodos(prevTodos => [...newTodos, ...prevTodos]);
@@ -403,12 +515,18 @@ const toggleSound = (id: string) => {
   };
 
   const startTimer = (seconds: number, breakSeconds?: number | null) => {
+    workDurationRef.current = seconds
     setTimer(seconds)
     setInitialTime(seconds)
     setIsPaused(true)
     setIsCustomTimerOpen(false)
     setSessionType("work")
     setBreakDuration(breakSeconds || null)
+    setCurrentTaskId(null)
+    setFocusQueue([])
+    setIsOvertime(false)
+    setOvertimeSeconds(0)
+    setAwaitingBreakChoice(false)
   }
 
   const formatTime = (seconds: number) => {
@@ -484,6 +602,9 @@ const toggleSound = (id: string) => {
     .reduce((sum, todo) => sum + todo.pomoSessions, 0)
 
   const currentTask = todos.find(todo => !todo.completed)
+
+  const currentQueueTask = currentTaskId ? todos.find(t => t.id === currentTaskId) : undefined
+  const nextQueueTask = focusQueue.length > 0 ? todos.find(t => t.id === focusQueue[0]) : undefined
 
   const formatDeadline = (deadline: string) => {
     const date = new Date(deadline)
@@ -636,15 +757,20 @@ const toggleSound = (id: string) => {
               setIsCustomTimerOpen={setIsCustomTimerOpen}
               setIsPaused={setIsPaused}
               setTimer={setTimer}
-              setInitialTime={setInitialTime}
-              setSessionType={setSessionType}
-              setBreakDuration={setBreakDuration}
               startTimer={startTimer}
+              onEndSession={endSession}
               formatTime={formatTime}
               pipSupported={pipSupported}
               pipActive={pipWindow !== null}
               onOpenPip={openPip}
               onClosePip={closePip}
+              currentTaskText={currentQueueTask?.text}
+              nextTaskText={nextQueueTask?.text}
+              isOvertime={isOvertime}
+              overtimeSeconds={overtimeSeconds}
+              awaitingBreakChoice={awaitingBreakChoice}
+              onResolveBreakChoice={resolveBreakChoice}
+              onWrapUpFlow={wrapUpFlow}
             />
           )}
 
@@ -674,6 +800,8 @@ const toggleSound = (id: string) => {
               setNewTodoPriority={setNewTodoPriority}
               newTodoDeadline={newTodoDeadline}
               setNewTodoDeadline={setNewTodoDeadline}
+              newTodoDifficulty={newTodoDifficulty}
+              setNewTodoDifficulty={setNewTodoDifficulty}
               viewMode={viewMode}
               setViewMode={setViewMode}
               isChaosMode={isChaosMode}
@@ -694,6 +822,8 @@ const toggleSound = (id: string) => {
               autoSortTasks={autoSortTasks}
               handleChaosCleanup={handleChaosCleanup}
               formatDeadline={formatDeadline}
+              onStartQueue={() => { startQueue(); handleTabChange("timer") }}
+              isFocusActive={timer !== null}
             />
           )}
 
@@ -718,22 +848,17 @@ const toggleSound = (id: string) => {
 
       {pipWindow && timer !== null && createPortal(
         <MixTimerPip
-          timer={timer}
+          timer={isOvertime ? overtimeSeconds : timer}
           initialTime={initialTime ?? timer}
           sessionType={sessionType}
+          isOvertime={isOvertime}
           isPaused={isPaused}
           activeColor={activeColor}
           formatTime={formatTime}
           onTogglePause={() => setIsPaused(!isPaused)}
-          onStop={() => {
-            setTimer(null)
-            setInitialTime(null)
-            setIsPaused(false)
-            setSessionType(null)
-            setBreakDuration(null)
-          }}
+          onStop={isOvertime ? wrapUpFlow : endSession}
           onRestart={() => {
-            if (initialTime !== null) {
+            if (initialTime !== null && !isOvertime) {
               setTimer(initialTime)
               setIsPaused(true)
             }

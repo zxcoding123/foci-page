@@ -8,6 +8,7 @@ interface MixTimerPipProps {
   timer: number
   initialTime: number
   sessionType: SessionType
+  isOvertime: boolean
   isPaused: boolean
   activeColor: string
   formatTime: (seconds: number) => string
@@ -21,6 +22,7 @@ export default function MixTimerPip({
   timer,
   initialTime,
   sessionType,
+  isOvertime,
   isPaused,
   activeColor,
   formatTime,
@@ -55,7 +57,7 @@ export default function MixTimerPip({
         boxSizing: "border-box",
       }}
     >
-      {sessionType && (
+      {(sessionType || isOvertime) && (
         <div
           style={{
             fontSize: "0.7rem",
@@ -66,7 +68,7 @@ export default function MixTimerPip({
             opacity: 0.7,
           }}
         >
-          {sessionType}
+          {isOvertime ? "flow" : sessionType}
         </div>
       )}
       <div
@@ -78,48 +80,52 @@ export default function MixTimerPip({
           lineHeight: 1,
         }}
       >
-        {formatTime(timer)}
+        {isOvertime && "+"}{formatTime(timer)}
       </div>
-      <div style={{ display: "flex", gap: "0.4rem" }}>
-        <button
-          onClick={() => onAdjustTime(-60)}
-          disabled={timer < 60}
-          title="-1 min"
-          style={{ ...pipButtonStyle, padding: "0.35rem 0.5rem", opacity: timer < 60 ? 0.4 : 1 }}
-        >
-          <FaMinus size={10} style={{ marginRight: 2 }} />
-          1m
-        </button>
-        <button
-          onClick={() => onAdjustTime(60)}
-          title="+1 min"
-          style={{ ...pipButtonStyle, padding: "0.35rem 0.5rem" }}
-        >
-          <FaPlus size={10} style={{ marginRight: 2 }} />
-          1m
-        </button>
-        <button
-          onClick={() => onAdjustTime(300)}
-          title="+5 min"
-          style={{ ...pipButtonStyle, padding: "0.35rem 0.5rem" }}
-        >
-          <FaPlus size={10} style={{ marginRight: 2 }} />
-          5m
-        </button>
-      </div>
+      {!isOvertime && (
+        <div style={{ display: "flex", gap: "0.4rem" }}>
+          <button
+            onClick={() => onAdjustTime(-60)}
+            disabled={timer < 60}
+            title="-1 min"
+            style={{ ...pipButtonStyle, padding: "0.35rem 0.5rem", opacity: timer < 60 ? 0.4 : 1 }}
+          >
+            <FaMinus size={10} style={{ marginRight: 2 }} />
+            1m
+          </button>
+          <button
+            onClick={() => onAdjustTime(60)}
+            title="+1 min"
+            style={{ ...pipButtonStyle, padding: "0.35rem 0.5rem" }}
+          >
+            <FaPlus size={10} style={{ marginRight: 2 }} />
+            1m
+          </button>
+          <button
+            onClick={() => onAdjustTime(300)}
+            title="+5 min"
+            style={{ ...pipButtonStyle, padding: "0.35rem 0.5rem" }}
+          >
+            <FaPlus size={10} style={{ marginRight: 2 }} />
+            5m
+          </button>
+        </div>
+      )}
       <div style={{ display: "flex", gap: "0.75rem" }}>
         <button onClick={onTogglePause} style={{ ...pipButtonStyle, padding: "0.6rem" }}>
           {isPaused ? <FaPlay size={16} /> : <FaPause size={16} />}
         </button>
-        <button
-          onClick={onRestart}
-          disabled={timer === initialTime}
-          title="Restart"
-          style={{ ...pipButtonStyle, padding: "0.6rem", opacity: timer === initialTime ? 0.4 : 1 }}
-        >
-          <FaRedo size={16} />
-        </button>
-        <button onClick={onStop} title="Stop" style={{ ...pipButtonStyle, padding: "0.6rem" }}>
+        {!isOvertime && (
+          <button
+            onClick={onRestart}
+            disabled={timer === initialTime}
+            title="Restart"
+            style={{ ...pipButtonStyle, padding: "0.6rem", opacity: timer === initialTime ? 0.4 : 1 }}
+          >
+            <FaRedo size={16} />
+          </button>
+        )}
+        <button onClick={onStop} title={isOvertime ? "Wrap Up" : "Stop"} style={{ ...pipButtonStyle, padding: "0.6rem" }}>
           <FaStop size={16} />
         </button>
       </div>

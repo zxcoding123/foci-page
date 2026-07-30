@@ -3,6 +3,8 @@ import { FaTree, FaWater, FaFire, FaMoon, FaWind, FaBook } from "react-icons/fa"
 
 export type Priority = "low" | "medium" | "high"
 
+export type Difficulty = "easy" | "deep"
+
 export type Todo = {
   id: string
   text: string
@@ -12,6 +14,7 @@ export type Todo = {
   tags: string[]
   priority: Priority
   deadline?: string
+  difficulty: Difficulty
 }
 
 export type AnalyticsData = {
@@ -46,6 +49,22 @@ export const timerPresets = [
   { work: 50, break: 10, label: "50 / 10" },
   { work: 15, break: null, label: "15m" },
   { work: 30, break: null, label: "30m" },
+]
+
+export const difficultyPresets: Record<Difficulty, { work: number; break: number; label: string }> = {
+  easy: { work: 25, break: 5, label: "Easy" },
+  deep: { work: 50, break: 10, label: "Deep Work" },
+}
+
+export const microBreakPrompts = [
+  "Step away and stretch your arms overhead.",
+  "Look at something 20 feet away for 20 seconds.",
+  "Roll your shoulders back a few times.",
+  "Stand up and take five slow breaths.",
+  "Refill your water and take a sip.",
+  "Unclench your jaw and relax your shoulders.",
+  "Walk to another room and back.",
+  "Close your eyes and just listen for a moment.",
 ]
 
 export const TimerButton = ({

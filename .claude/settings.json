@@ -6,7 +6,8 @@
       "Bash(node \"C:/Users/AHMAD/AppData/Local/Temp/claude/e--projects-svelte-projects-foci-foci-page/77841995-6c5a-4228-acb9-bcfee157f067/scratchpad/pip-test.mjs\")",
       "Bash(jobs -l)",
       "Bash(sed -i 's/localhost:3000/localhost:3005/' pip-test.mjs)",
-      "Bash(node pip-test.mjs)"
+      "Bash(node pip-test.mjs)",
+      "Bash(npx tsc *)"
     ]
   }
 }

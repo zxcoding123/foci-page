@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react"
 import { motion } from "framer-motion"
-import { FaPlay, FaPause, FaStop, FaRedo, FaExternalLinkAlt, FaMinus, FaPlus } from "react-icons/fa"
-import { TimerButton, timerPresets } from "./constants"
+import { FaPlay, FaPause, FaStop, FaRedo, FaExternalLinkAlt, FaMinus, FaPlus, FaCoffee, FaBolt, FaLayerGroup } from "react-icons/fa"
+import { TimerButton, timerPresets, microBreakPrompts } from "./constants"
 
 type SessionType = "work" | "break" | null
 
@@ -17,15 +17,20 @@ interface MixTimerProps {
   setIsCustomTimerOpen: (value: boolean) => void
   setIsPaused: (value: boolean) => void
   setTimer: (value: number | null) => void
-  setInitialTime: (value: number | null) => void
-  setSessionType: (value: SessionType) => void
-  setBreakDuration: (value: number | null) => void
   startTimer: (seconds: number, breakSeconds?: number | null) => void
+  onEndSession: () => void
   formatTime: (seconds: number) => string
   pipSupported: boolean
   pipActive: boolean
   onOpenPip: () => void
   onClosePip: () => void
+  currentTaskText?: string
+  nextTaskText?: string
+  isOvertime: boolean
+  overtimeSeconds: number
+  awaitingBreakChoice: boolean
+  onResolveBreakChoice: (choice: "break" | "flow") => void
+  onWrapUpFlow: () => void
 }
 
 export default function MixTimer({
@@ -38,15 +43,20 @@ export default function MixTimer({
   setIsCustomTimerOpen,
   setIsPaused,
   setTimer,
-  setInitialTime,
-  setSessionType,
-  setBreakDuration,
   startTimer,
+  onEndSession,
   formatTime,
   pipSupported,
   pipActive,
   onOpenPip,
   onClosePip,
+  currentTaskText,
+  nextTaskText,
+  isOvertime,
+  overtimeSeconds,
+  awaitingBreakChoice,
+  onResolveBreakChoice,
+  onWrapUpFlow,
 }: MixTimerProps) {
   const [workH, setWorkH] = useState(0)
   const [workM, setWorkM] = useState(25)
@@ -55,13 +65,28 @@ export default function MixTimer({
   const [breakM, setBreakM] = useState(0)
   const [breakS, setBreakS] = useState(0)
 
-  const resetTimer = () => {
-    setTimer(null)
-    setInitialTime(null)
-    setIsPaused(false)
-    setSessionType(null)
-    setBreakDuration(null)
+  const restartTimer = () => {
+    if (initialTime === null) return
+    setTimer(initialTime)
+    setIsPaused(true)
   }
+
+  const [breakKey, setBreakKey] = useState<number | null>(null)
+  const [promptIndex, setPromptIndex] = useState(0)
+
+  const activeBreakKey = sessionType === "break" ? initialTime : null
+  if (activeBreakKey !== breakKey) {
+    setBreakKey(activeBreakKey)
+    if (activeBreakKey !== null) {
+      setPromptIndex((i) => (i + 1) % microBreakPrompts.length)
+    }
+  }
+  const microBreakPrompt = activeBreakKey !== null ? microBreakPrompts[promptIndex] : null
+
+  const displaySeconds = isOvertime ? overtimeSeconds : (timer ?? 0)
+  const progress = isOvertime ? 1 : (timer !== null && initialTime ? 1 - timer / initialTime : 0)
+  const ringRadius = 140
+  const ringCircumference = 2 * Math.PI * ringRadius
 
   const workTotalSeconds = workH * 3600 + workM * 60 + workS
   const breakTotalSeconds = breakH * 3600 + breakM * 60 + breakS
@@ -120,7 +145,7 @@ export default function MixTimer({
 
         </div>
       ) : (
-        <div className="flex flex-col items-center gap-8">
+        <div className="flex flex-col items-center gap-6">
            {pipSupported && (
              <button
                onClick={pipActive ? onClosePip : onOpenPip}
@@ -131,67 +156,151 @@ export default function MixTimer({
                <span>{pipActive ? "Bring Back" : "Pop Out"}</span>
              </button>
            )}
-           {sessionType && (
-            <div className="text-2xl font-bold uppercase tracking-widest mb-4 transition-colors duration-500" style={{ color: activeColor }}>
-              {sessionType}
-            </div>
-           )}
-           <div className="text-[12vw] font-black font-mono leading-none tracking-tighter transition-colors duration-500 select-none" style={{ color: activeColor }}>
-             {formatTime(timer)}
-           </div>
-           {isPaused && timer === initialTime ? (
-             <div className="flex flex-col items-center gap-4">
-               <button
-                 onClick={() => setIsPaused(false)}
-                 className="px-12 py-6 rounded-full text-2xl font-bold text-white transition-all hover:scale-105 active:scale-95 shadow-xl flex items-center gap-3"
-                 style={{ backgroundColor: activeColor }}
-               >
-                 <FaPlay size={24} />
-                 <span>Start Now</span>
-               </button>
-               <button
-                 onClick={resetTimer}
-                 className="text-sm font-bold opacity-50 hover:opacity-100 transition-opacity uppercase tracking-widest"
-                 style={{ color: activeColor }}
-               >
-                 Cancel
-               </button>
+
+           {currentTaskText && (
+             <div className="flex items-center gap-2 text-sm font-bold px-4 py-1.5 rounded-full bg-white/50 backdrop-blur-sm" style={{ color: activeColor }}>
+               <FaLayerGroup size={12} />
+               <span className="max-w-[60vw] truncate">{currentTaskText}</span>
              </div>
-           ) : (
-           <div className="flex items-center gap-6">
-              <button
-                onClick={() => setIsPaused(!isPaused)}
-                className="p-6 rounded-full border-2 transition-all hover:scale-105 active:scale-95 bg-white/50 backdrop-blur-sm"
-                style={{ borderColor: activeColor, color: activeColor }}
-                title={isPaused ? "Resume" : "Pause"}
-              >
-                {isPaused ? <FaPlay size={32} /> : <FaPause size={32} />}
-              </button>
-
-              <button
-                onClick={() => {
-                  if (initialTime) {
-                    setTimer(initialTime)
-                    setIsPaused(true)
-                  }
-                }}
-                className="p-6 rounded-full border-2 transition-all hover:scale-105 active:scale-95 bg-white/50 backdrop-blur-sm"
-                style={{ borderColor: activeColor, color: activeColor }}
-                title="Restart"
-              >
-                <FaRedo size={32} />
-              </button>
-
-              <button
-                onClick={resetTimer}
-                className="p-6 rounded-full border-2 transition-all hover:scale-105 active:scale-95 hover:bg-red-50 hover:border-red-500 hover:text-red-500 bg-white/50 backdrop-blur-sm"
-                style={{ borderColor: activeColor, color: activeColor }}
-                title="Stop"
-              >
-                <FaStop size={32} />
-              </button>
-           </div>
            )}
+
+           <div
+             className="relative flex items-center justify-center"
+             style={{ width: "min(85vw, 360px)", height: "min(85vw, 360px)" }}
+           >
+             <svg viewBox="0 0 300 300" className="absolute inset-0 -rotate-90">
+               <circle
+                 cx="150"
+                 cy="150"
+                 r={ringRadius}
+                 fill="none"
+                 stroke={activeColor}
+                 strokeOpacity={0.12}
+                 strokeWidth={10}
+               />
+               <motion.circle
+                 cx="150"
+                 cy="150"
+                 r={ringRadius}
+                 fill="none"
+                 stroke={activeColor}
+                 strokeWidth={10}
+                 strokeLinecap="round"
+                 strokeDasharray={ringCircumference}
+                 animate={isOvertime ? { strokeDashoffset: 0, opacity: [1, 0.5, 1] } : { strokeDashoffset: ringCircumference * progress }}
+                 transition={isOvertime ? { duration: 1.6, repeat: Infinity, ease: "easeInOut" } : { duration: isPaused ? 0.3 : 1, ease: "linear" }}
+               />
+             </svg>
+
+             <div className="relative flex flex-col items-center gap-5 px-6">
+               {(sessionType || isOvertime) && (
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest transition-colors duration-500" style={{ color: activeColor }}>
+                  {isOvertime && <FaBolt size={12} />}
+                  {isOvertime ? "Flow / Overtime" : sessionType}
+                </div>
+               )}
+               <div className="text-[11vw] sm:text-6xl font-black font-mono leading-none tracking-tighter transition-colors duration-500 select-none" style={{ color: activeColor }}>
+                 {isOvertime && "+"}{formatTime(displaySeconds)}
+               </div>
+               {sessionType === "break" && microBreakPrompt && (
+                 <div className="flex items-center gap-2 text-xs font-medium text-center max-w-55 opacity-70" style={{ color: activeColor }}>
+                   <FaCoffee size={12} className="shrink-0" />
+                   <span>{microBreakPrompt}</span>
+                 </div>
+               )}
+
+               {isPaused && timer === initialTime && !isOvertime ? (
+                 <button
+                   onClick={() => setIsPaused(false)}
+                   className="p-6 rounded-full text-white transition-all hover:scale-105 active:scale-95 shadow-xl"
+                   style={{ backgroundColor: activeColor }}
+                   title="Play"
+                 >
+                   <FaPlay size={28} />
+                 </button>
+               ) : (
+                 <div className="flex items-center gap-4">
+                   {!isOvertime && (
+                     <button
+                       onClick={restartTimer}
+                       className="p-4 rounded-full border-2 transition-all hover:scale-105 active:scale-95 bg-white/50 backdrop-blur-sm"
+                       style={{ borderColor: activeColor, color: activeColor }}
+                       title="Reset"
+                     >
+                       <FaRedo size={20} />
+                     </button>
+                   )}
+
+                   <button
+                     onClick={() => setIsPaused(!isPaused)}
+                     className="p-6 rounded-full text-white transition-all hover:scale-105 active:scale-95 shadow-xl"
+                     style={{ backgroundColor: activeColor }}
+                     title={isPaused ? "Play" : "Pause"}
+                   >
+                     {isPaused ? <FaPlay size={28} /> : <FaPause size={28} />}
+                   </button>
+
+                   <button
+                     onClick={isOvertime ? onWrapUpFlow : onEndSession}
+                     className="p-4 rounded-full border-2 transition-all hover:scale-105 active:scale-95 hover:bg-red-50 hover:border-red-500 hover:text-red-500 bg-white/50 backdrop-blur-sm"
+                     style={{ borderColor: activeColor, color: activeColor }}
+                     title={isOvertime ? "Wrap Up" : "Stop"}
+                   >
+                     <FaStop size={20} />
+                   </button>
+                 </div>
+               )}
+             </div>
+           </div>
+
+           {nextTaskText && !awaitingBreakChoice && (
+             <div className="text-xs font-bold opacity-50 uppercase tracking-widest" style={{ color: activeColor }}>
+               Up next: {nextTaskText}
+             </div>
+           )}
+
+           {isPaused && timer === initialTime && (
+             <button
+               onClick={onEndSession}
+               className="text-sm font-bold opacity-50 hover:opacity-100 transition-opacity uppercase tracking-widest"
+               style={{ color: activeColor }}
+             >
+               Cancel
+             </button>
+           )}
+        </div>
+      )}
+
+      {/* Break vs. Flow prompt */}
+      {awaitingBreakChoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-sm text-center"
+          >
+            <h3 className="text-2xl font-bold mb-2" style={{ color: activeColor }}>Focus session complete!</h3>
+            <p className="text-sm text-gray-500 mb-6">Still in the zone? Keep flowing, or take your break.</p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => onResolveBreakChoice("flow")}
+                className="flex items-center justify-center gap-2 px-8 py-3 rounded-xl font-bold text-white transition-transform active:scale-95"
+                style={{ backgroundColor: activeColor }}
+              >
+                <FaBolt size={14} />
+                Keep Flowing
+              </button>
+              <button
+                onClick={() => onResolveBreakChoice("break")}
+                className="flex items-center justify-center gap-2 px-8 py-3 rounded-xl font-bold border-2 transition-transform active:scale-95"
+                style={{ borderColor: activeColor, color: activeColor }}
+              >
+                <FaCoffee size={14} />
+                Start Break
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-4">Break starts automatically if you don&apos;t choose.</p>
+          </motion.div>
         </div>
       )}
 

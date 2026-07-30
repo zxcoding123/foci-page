@@ -3,9 +3,9 @@
 import { motion, Reorder } from "framer-motion"
 import {
   FaCheck, FaTrash, FaTag, FaBullseye, FaGripVertical, FaPlus, FaMinus,
-  FaFlag, FaList, FaThLarge, FaBrain, FaMagic, FaChartBar
+  FaFlag, FaList, FaThLarge, FaBrain, FaMagic, FaChartBar, FaLayerGroup
 } from "react-icons/fa"
-import { Priority, Todo } from "./constants"
+import { Priority, Todo, Difficulty, difficultyPresets } from "./constants"
 
 interface MixTodosProps {
   todos: Todo[]
@@ -20,6 +20,8 @@ interface MixTodosProps {
   setNewTodoPriority: (value: Priority) => void
   newTodoDeadline: string
   setNewTodoDeadline: (value: string) => void
+  newTodoDifficulty: Difficulty
+  setNewTodoDifficulty: (value: Difficulty) => void
   viewMode: "list" | "grid"
   setViewMode: (value: "list" | "grid") => void
   isChaosMode: boolean
@@ -40,6 +42,8 @@ interface MixTodosProps {
   autoSortTasks: () => void
   handleChaosCleanup: () => void
   formatDeadline: (deadline: string) => string
+  onStartQueue: () => void
+  isFocusActive: boolean
 }
 
 export default function MixTodos({
@@ -55,6 +59,8 @@ export default function MixTodos({
   setNewTodoPriority,
   newTodoDeadline,
   setNewTodoDeadline,
+  newTodoDifficulty,
+  setNewTodoDifficulty,
   viewMode,
   setViewMode,
   isChaosMode,
@@ -75,6 +81,8 @@ export default function MixTodos({
   autoSortTasks,
   handleChaosCleanup,
   formatDeadline,
+  onStartQueue,
+  isFocusActive,
 }: MixTodosProps) {
   return (
     <div className={`mx-auto animate-in fade-in duration-500 ${viewMode === 'grid' ? 'max-w-4xl' : 'max-w-2xl'}`}>
@@ -145,6 +153,16 @@ export default function MixTodos({
                   title="Auto-sort by heat map"
               >
                   <FaChartBar size={14} />
+              </button>
+              <button
+                  onClick={onStartQueue}
+                  disabled={isFocusActive || todos.every(t => t.completed)}
+                  className="flex items-center gap-2 px-3 py-3 rounded-lg transition-all bg-white/40 backdrop-blur-sm border-2 hover:bg-[#F6D2B5]/80 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white/40 text-xs font-bold uppercase tracking-wider"
+                  style={{ borderColor: activeColor, color: activeColor }}
+                  title="Queue up all tasks and auto-advance through focus sprints"
+              >
+                  <FaLayerGroup size={14} />
+                  <span className="hidden sm:inline">Focus Queue</span>
               </button>
               <div className="flex gap-1 bg-white/40 backdrop-blur-sm p-1 rounded-xl border-2" style={{ borderColor: activeColor }}>
               <button
@@ -238,6 +256,20 @@ export default function MixTodos({
                   <option value="high">High</option>
                 </select>
             </div>
+            <div className="flex items-center gap-2 px-4 py-4 rounded-2xl border-2 bg-white/80 backdrop-blur-sm transition-all">
+                <FaLayerGroup className="text-gray-400" />
+                <select
+                  value={newTodoDifficulty}
+                  onChange={(e) => setNewTodoDifficulty(e.target.value as Difficulty)}
+                  className="bg-transparent focus:outline-none text-sm font-bold uppercase tracking-wider cursor-pointer"
+                  style={{ color: '#4A4A4A' }}
+                  title="Task weight sets the focus/break sprint length when queued"
+                >
+                  {Object.entries(difficultyPresets).map(([key, preset]) => (
+                    <option key={key} value={key}>{preset.label} ({preset.work}/{preset.break})</option>
+                  ))}
+                </select>
+            </div>
           <div className="flex items-center gap-2 bg-white/80 backdrop-blur-sm rounded-2xl px-4">
             <span className="text-2xl">🍅</span>
             <input
@@ -295,6 +327,9 @@ export default function MixTodos({
                       'bg-green-100 text-green-600'
                   }`}>
                       {todo.priority}
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-black/5 text-black/50">
+                      {difficultyPresets[todo.difficulty || "easy"].label}
                   </span>
               </div>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -357,6 +392,9 @@ export default function MixTodos({
                                   'bg-green-100 text-green-600'
                               }`}>
                                   {todo.priority}
+                              </span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-black/5 text-black/50">
+                                  {difficultyPresets[todo.difficulty || "easy"].label}
                               </span>
                           </div>
                           <button
